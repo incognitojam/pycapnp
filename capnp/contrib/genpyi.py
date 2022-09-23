@@ -362,9 +362,7 @@ def gen_struct(schema, writer, name: str = ""):
         writer.typing_imports.add("Generic")
         generic_params = [param.name for param in schema.node.parameters]
         referenced_params = []
-        for field, raw_field in zip(
-            schema.node.struct.fields, schema.as_struct().fields_list
-        ):
+        for field in schema.node.struct.fields:
             if (
                 field.slot.type.which() == "anyPointer"
                 and field.slot.type.anyPointer.which() == "parameter"
