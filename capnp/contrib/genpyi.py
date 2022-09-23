@@ -184,6 +184,19 @@ class Writer:
         del self.scopes_by_id[scope.id]
         self._update_indent_level()
 
+    def struct_generic_params(self, struct) -> list[str]:
+        generics_params = []
+        for brand_scope in struct.brand.scopes:
+            if brand_scope.which() == "inherit":
+                parent_scope = self.lookup_type(brand_scope.scopeId)
+                generics_params.extend(parent_scope.generic_params)
+            elif brand_scope.which() == "bind":
+                for bind in brand_scope.bind:
+                    generics_params.append(self.type_ref(bind.type))
+            else:
+                raise AssertionError
+        return generics_params
+
     def type_ref(self, type_node) -> str:
         try:
             return CAPNP_TYPE_TO_PYTHON[type_node.which()]
@@ -192,16 +205,7 @@ class Writer:
         if type_node.which() == "struct":
             elem_type = self.lookup_type(type_node.struct.typeId)
             type_name = elem_type.name
-            generics_params = []
-            for brand_scope in type_node.struct.brand.scopes:
-                if brand_scope.which() == "inherit":
-                    parent_scope = self.lookup_type(brand_scope.scopeId)
-                    generics_params.extend(parent_scope.generic_params)
-                elif brand_scope.which() == "bind":
-                    for bind in brand_scope.bind:
-                        generics_params.append(self.type_ref(bind.type))
-                else:
-                    raise AssertionError
+            generics_params = self.struct_generic_params(type_node.struct)
             if generics_params:
                 type_name += f"[{', '.join(generics_params)}]"
         elif type_node.which() == "enum":
