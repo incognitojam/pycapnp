@@ -111,9 +111,7 @@ class Writer:
         while scope.parent is not None:
             scope = scope.parent
 
-        return self.register_type(
-            schema.node.id, schema, name=def_name, scope=scope
-        )
+        return self.register_type(schema.node.id, schema, name=def_name, scope=scope)
 
     def register_type_var(self, name: str) -> str:
         names = [name]
@@ -129,14 +127,10 @@ class Writer:
         self, type_id, schema, name: str = "", scope: Scope | None = None
     ) -> Type:
         if not name:
-            name = schema.node.displayName[
-                schema.node.displayNamePrefixLength :
-            ]
+            name = schema.node.displayName[schema.node.displayNamePrefixLength :]
         if scope is None:
             scope = self.scope.parent
-        self.type_map[type_id] = retval = Type(
-            schema=schema, name=name, scope=scope
-        )
+        self.type_map[type_id] = retval = Type(schema=schema, name=name, scope=scope)
         return retval
 
     def lookup_type(self, type_id: int) -> Type:
@@ -288,9 +282,7 @@ def gen_struct(schema, writer, name: str = ""):
             ):
                 param = field.slot.type.anyPointer.parameter
                 param_source = writer.lookup_type(param.scopeId).schema
-                source_params = [
-                    param.name for param in param_source.node.parameters
-                ]
+                source_params = [param.name for param in param_source.node.parameters]
                 referenced_params.append(source_params[param.parameterIndex])
     else:
         generic_params = []
@@ -299,9 +291,7 @@ def gen_struct(schema, writer, name: str = ""):
     if generic_params or referenced_params:
         for param in generic_params + referenced_params:
             registered_params.append(writer.register_type_var(param))
-        scope_decl_line = (
-            f"class {name}(Generic[{', '.join(registered_params)}]):"
-        )
+        scope_decl_line = f"class {name}(Generic[{', '.join(registered_params)}]):"
     else:
         scope_decl_line = f"class {name}:"
     writer.begin_scope(name, schema.node, scope_decl_line)
@@ -327,9 +317,7 @@ def gen_struct(schema, writer, name: str = ""):
                         gen_nested(raw_field.schema.elementType, writer)
                 elif field.slot.type.list.elementType.which() == "enum":
                     try:
-                        writer.lookup_type(
-                            field.slot.type.list.elementType.enum.typeId
-                        )
+                        writer.lookup_type(field.slot.type.list.elementType.enum.typeId)
                     except KeyError:
                         gen_nested(raw_field.schema.elementType, writer)
                 type_name = writer.type_ref(field.slot.type.list.elementType)
@@ -434,8 +422,7 @@ def gen_struct(schema, writer, name: str = ""):
     elif len(init_choices) == 1:
         field_name, field_type = init_choices[0]
         writer.writeln(
-            f'def init(self, name: Literal["{field_name}"])'
-            f" -> {field_type}: ..."
+            f'def init(self, name: Literal["{field_name}"])' f" -> {field_type}: ..."
         )
 
     if not have_body:
