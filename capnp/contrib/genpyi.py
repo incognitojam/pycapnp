@@ -260,48 +260,10 @@ def gen_enum(schema, writer):
     writer.end_scope()
 
 
-def gen_struct(schema, writer, name: str = ""):
-    imported = writer.check_import(schema)
-    if imported is not None:
-        return imported
-    # y(schema.node.displayName, schema.node.id, schema.node.scopeId)
-
-    if not name:
-        name = schema.node.displayName[schema.node.displayNamePrefixLength :]
-    if schema.node.isGeneric:
-        writer.typing_imports.add("TypeVar")
-        writer.typing_imports.add("Generic")
-        generic_params = [param.name for param in schema.node.parameters]
-        referenced_params = []
-        for field, raw_field in zip(
-            schema.node.struct.fields, schema.as_struct().fields_list
-        ):
-            if (
-                field.slot.type.which() == "anyPointer"
-                and field.slot.type.anyPointer.which() == "parameter"
-            ):
-                param = field.slot.type.anyPointer.parameter
-                param_source = writer.lookup_type(param.scopeId).schema
-                source_params = [param.name for param in param_source.node.parameters]
-                referenced_params.append(source_params[param.parameterIndex])
-    else:
-        generic_params = []
-        referenced_params = []
-    registered_params = []
-    if generic_params or referenced_params:
-        for param in generic_params + referenced_params:
-            registered_params.append(writer.register_type_var(param))
-        scope_decl_line = f"class {name}(Generic[{', '.join(registered_params)}]):"
-    else:
-        scope_decl_line = f"class {name}:"
-    writer.begin_scope(name, schema.node, scope_decl_line)
-    registered = writer.register_type(schema.node.id, schema, name=name)
-    registered.generic_params = registered_params
-    name = registered.name
-    have_body = False
-
+def gen_struct_fields(schema, writer, registered, init_choices, contructor_kwargs):
     init_choices = []
     contructor_kwargs = []
+    have_body = False
 
     for field, raw_field in zip(
         schema.node.struct.fields, schema.as_struct().fields_list
@@ -357,7 +319,6 @@ def gen_struct(schema, writer, name: str = ""):
                 contructor_kwargs.append(field_py_code)
                 have_body = True
                 init_choices.append((field.name, type_name))
-
             elif field.slot.type.which() == "anyPointer":
                 param = field.slot.type.anyPointer.parameter
                 type_name = registered.generic_params[param.parameterIndex]
@@ -384,6 +345,55 @@ def gen_struct(schema, writer, name: str = ""):
             raise AssertionError(
                 f"{schema.node.displayName}: {field.name}: " f"{field.which()}"
             )
+
+    return have_body
+
+
+def gen_struct(schema, writer, name: str = ""):
+    imported = writer.check_import(schema)
+    if imported is not None:
+        return imported
+    # y(schema.node.displayName, schema.node.id, schema.node.scopeId)
+
+    if not name:
+        name = schema.node.displayName[schema.node.displayNamePrefixLength :]
+    if schema.node.isGeneric:
+        writer.typing_imports.add("TypeVar")
+        writer.typing_imports.add("Generic")
+        generic_params = [param.name for param in schema.node.parameters]
+        referenced_params = []
+        for field, raw_field in zip(
+            schema.node.struct.fields, schema.as_struct().fields_list
+        ):
+            if (
+                field.slot.type.which() == "anyPointer"
+                and field.slot.type.anyPointer.which() == "parameter"
+            ):
+                param = field.slot.type.anyPointer.parameter
+                param_source = writer.lookup_type(param.scopeId).schema
+                source_params = [param.name for param in param_source.node.parameters]
+                referenced_params.append(source_params[param.parameterIndex])
+    else:
+        generic_params = []
+        referenced_params = []
+    registered_params = []
+    if generic_params or referenced_params:
+        for param in generic_params + referenced_params:
+            registered_params.append(writer.register_type_var(param))
+        scope_decl_line = f"class {name}(Generic[{', '.join(registered_params)}]):"
+    else:
+        scope_decl_line = f"class {name}:"
+    writer.begin_scope(name, schema.node, scope_decl_line)
+    registered = writer.register_type(schema.node.id, schema, name=name)
+    registered.generic_params = registered_params
+    name = registered.name
+
+    init_choices = []
+    contructor_kwargs = []
+    have_body = gen_struct_fields(
+        schema, writer, registered, init_choices, contructor_kwargs
+    )
+
     scope_path = registered.scope_path
     if len(scope_path) > 0:
         scoped_name = ".".join([scope.name for scope in scope_path] + [name])
