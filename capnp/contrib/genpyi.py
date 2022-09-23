@@ -400,7 +400,7 @@ def gen_struct(schema, writer, name: str = ""):
     writer.writeln("@staticmethod")
     writer.writeln(f"def from_bytes(data: bytes) -> {scoped_name}: ...")
     writer.writeln("def to_bytes(self) -> bytes: ...")
-    have_body = True
+    have_body = False
 
     if schema.node.struct.discriminantCount:
         literals = ", ".join(
