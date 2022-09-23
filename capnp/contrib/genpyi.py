@@ -260,9 +260,51 @@ def gen_enum(schema, writer):
     writer.end_scope()
 
 
-def gen_struct_fields(schema, writer, registered, init_choices, contructor_kwargs):
-    init_choices = []
-    contructor_kwargs = []
+def gen_struct_fields_slot_list(writer, field, raw_field, constructor_kwargs):
+    try:
+        if field.slot.type.list.elementType.which() == "struct":
+            writer.lookup_type(field.slot.type.list.elementType.struct.typeId)
+        elif field.slot.type.list.elementType.which() == "enum":
+            writer.lookup_type(field.slot.type.list.elementType.enum.typeId)
+    except KeyError:
+        gen_nested(raw_field.schema.elementType, writer)
+    type_name = writer.type_ref(field.slot.type.list.elementType)
+    field_py_code = f"{field.name}: List[{type_name}]"
+    writer.writeln(field_py_code)
+    constructor_kwargs.append(field_py_code)
+    writer.typing_imports.add("List")
+
+
+def gen_struct_fields_slot_enum(writer, field, raw_field, constructor_kwargs):
+    try:
+        writer.lookup_type(field.slot.type.enum.typeId)
+    except KeyError:
+        try:
+            gen_nested(raw_field.schema, writer)
+        except NoParentError:
+            pass
+    type_name = writer.type_ref(field.slot.type)
+    field_py_code = f"{field.name}: {type_name}"
+    writer.writeln(field_py_code)
+    constructor_kwargs.append(field_py_code)
+
+
+def gen_struct_fields_slot_struct(
+    writer, field, raw_field, constructor_kwargs, init_choices
+):
+    elem_type = raw_field.schema
+    try:
+        writer.lookup_type(elem_type.node.id)
+    except KeyError:
+        gen_struct(elem_type, writer)
+    type_name = writer.type_ref(field.slot.type)
+    field_py_code = f"{field.name}: {type_name}"
+    writer.writeln(field_py_code)
+    constructor_kwargs.append(field_py_code)
+    init_choices.append((field.name, type_name))
+
+
+def gen_struct_fields(schema, writer, registered, init_choices, constructor_kwargs):
     have_body = False
 
     for field, raw_field in zip(
@@ -270,61 +312,32 @@ def gen_struct_fields(schema, writer, registered, init_choices, contructor_kwarg
     ):
         if field.which() == "slot":
             if field.slot.type.which() == "list":
-                if field.slot.type.list.elementType.which() == "struct":
-                    try:
-                        writer.lookup_type(
-                            field.slot.type.list.elementType.struct.typeId
-                        )
-                    except KeyError:
-                        gen_nested(raw_field.schema.elementType, writer)
-                elif field.slot.type.list.elementType.which() == "enum":
-                    try:
-                        writer.lookup_type(field.slot.type.list.elementType.enum.typeId)
-                    except KeyError:
-                        gen_nested(raw_field.schema.elementType, writer)
-                type_name = writer.type_ref(field.slot.type.list.elementType)
-                field_py_code = f"{field.name}: List[{type_name}]"
-                writer.writeln(field_py_code)
-                contructor_kwargs.append(field_py_code)
+                gen_struct_fields_slot_list(
+                    writer, field, raw_field, constructor_kwargs
+                )
                 have_body = True
-                writer.typing_imports.add("List")
             elif field.slot.type.which() in CAPNP_TYPE_TO_PYTHON:
                 type_name = CAPNP_TYPE_TO_PYTHON[field.slot.type.which()]
                 field_py_code = f"{field.name}: {type_name}"
                 writer.writeln(field_py_code)
-                contructor_kwargs.append(field_py_code)
+                constructor_kwargs.append(field_py_code)
                 have_body = True
             elif field.slot.type.which() == "enum":
-                try:
-                    writer.lookup_type(field.slot.type.enum.typeId)
-                except KeyError:
-                    try:
-                        gen_nested(raw_field.schema, writer)
-                    except NoParentError:
-                        pass
-                type_name = writer.type_ref(field.slot.type)
-                field_py_code = f"{field.name}: {type_name}"
-                writer.writeln(field_py_code)
-                contructor_kwargs.append(field_py_code)
+                gen_struct_fields_slot_enum(
+                    writer, field, raw_field, constructor_kwargs
+                )
                 have_body = True
             elif field.slot.type.which() == "struct":
-                elem_type = raw_field.schema
-                try:
-                    writer.lookup_type(elem_type.node.id)
-                except KeyError:
-                    gen_struct(elem_type, writer)
-                type_name = writer.type_ref(field.slot.type)
-                field_py_code = f"{field.name}: {type_name}"
-                writer.writeln(field_py_code)
-                contructor_kwargs.append(field_py_code)
+                gen_struct_fields_slot_struct(
+                    writer, field, raw_field, constructor_kwargs, init_choices
+                )
                 have_body = True
-                init_choices.append((field.name, type_name))
             elif field.slot.type.which() == "anyPointer":
                 param = field.slot.type.anyPointer.parameter
                 type_name = registered.generic_params[param.parameterIndex]
                 field_py_code = f"{field.name}: {type_name}"
                 writer.writeln(field_py_code)
-                contructor_kwargs.append(field_py_code)
+                constructor_kwargs.append(field_py_code)
                 have_body = True
             else:
                 raise AssertionError(
@@ -338,7 +351,7 @@ def gen_struct_fields(schema, writer, registered, init_choices, contructor_kwarg
             group_name = gen_struct(raw_schema, writer, name=group_name).name
             field_py_code = f"{field.name}: {group_name}"
             writer.writeln(field_py_code)
-            contructor_kwargs.append(field_py_code)
+            constructor_kwargs.append(field_py_code)
             have_body = True
             init_choices.append((field.name, group_name))
         else:
@@ -349,14 +362,7 @@ def gen_struct_fields(schema, writer, registered, init_choices, contructor_kwarg
     return have_body
 
 
-def gen_struct(schema, writer, name: str = ""):
-    imported = writer.check_import(schema)
-    if imported is not None:
-        return imported
-    # y(schema.node.displayName, schema.node.id, schema.node.scopeId)
-
-    if not name:
-        name = schema.node.displayName[schema.node.displayNamePrefixLength :]
+def gen_struct_type(schema, writer, name: str):
     if schema.node.isGeneric:
         writer.typing_imports.add("TypeVar")
         writer.typing_imports.add("Generic")
@@ -384,6 +390,18 @@ def gen_struct(schema, writer, name: str = ""):
     writer.begin_scope(name, schema.node, scope_decl_line)
     registered = writer.register_type(schema.node.id, schema, name=name)
     registered.generic_params = registered_params
+    return registered
+
+
+def gen_struct(schema, writer, name: str = ""):
+    imported = writer.check_import(schema)
+    if imported is not None:
+        return imported
+    # y(schema.node.displayName, schema.node.id, schema.node.scopeId)
+
+    if not name:
+        name = schema.node.displayName[schema.node.displayNamePrefixLength :]
+    registered = gen_struct_type(schema, writer, name)
     name = registered.name
 
     init_choices = []
@@ -393,10 +411,7 @@ def gen_struct(schema, writer, name: str = ""):
     )
 
     scope_path = registered.scope_path
-    if len(scope_path) > 0:
-        scoped_name = ".".join([scope.name for scope in scope_path] + [name])
-    else:
-        scoped_name = name
+    scoped_name = ".".join([scope.name for scope in scope_path] + [name])
     writer.writeln("@staticmethod")
     writer.writeln(f"def from_bytes(data: bytes) -> {scoped_name}: ...")
     writer.writeln("def to_bytes(self) -> bytes: ...")
